@@ -44,9 +44,9 @@ func (s ParcelStore) Get(number int) (Parcel, error) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return p, fmt.Errorf("parcel with number %d not found", number)
+			return Parcel{}, fmt.Errorf("parcel with number %d not found: %w", number, err)
 		}
-		return p, fmt.Errorf("failed to get parcel from db: %w", err)
+		return Parcel{}, fmt.Errorf("failed to get parcel from db: %w", err)
 	}
 
 	return p, nil
@@ -97,23 +97,23 @@ func (s ParcelStore) SetStatus(number int, status string) error {
 func (s ParcelStore) SetAddress(number int, address string) error {
 	// реализуйте обновление адреса в таблице parcel
 	// менять адрес можно только если значение статуса registered
-	status, err := s.StatusByNumber(number)
-
-	if err != nil {
-		return fmt.Errorf("failed to get parcel for address update by number: %w", err)
-	}
-
-	if status != ParcelStatusRegistered {
-		return fmt.Errorf("address update is not available for parcels in %s status", status)
-	}
-
-	_, err = s.db.Exec("UPDATE parcel SET address = :address WHERE number = :number",
+	result, err := s.db.Exec("UPDATE parcel SET address = :address WHERE number = :number AND status = :status",
 		sql.Named("address", address),
 		sql.Named("number", number),
+		sql.Named("status", ParcelStatusRegistered),
 	)
 
 	if err != nil {
 		return fmt.Errorf("failed to update parcel address: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get affected rows: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("parcel with number %d and status %s not found", number, ParcelStatusRegistered)
 	}
 
 	return nil
@@ -122,34 +122,23 @@ func (s ParcelStore) SetAddress(number int, address string) error {
 func (s ParcelStore) Delete(number int) error {
 	// реализуйте удаление строки из таблицы parcel
 	// удалять строку можно только если значение статуса registered
-	status, err := s.StatusByNumber(number)
-	if err != nil {
-		return fmt.Errorf("failed to get parcel for deletion by number: %w", err)
-	}
 
-	if status != ParcelStatusRegistered {
-		return fmt.Errorf("parcel delete is not available for parcels in %s status", status)
-	}
-
-	_, err = s.db.Exec("DELETE FROM parcel WHERE number = $1", number)
+	result, err := s.db.Exec("DELETE FROM parcel WHERE number = :number AND status = :status",
+		sql.Named("number", number),
+		sql.Named("status", ParcelStatusRegistered))
 
 	if err != nil {
-		return fmt.Errorf("failed to delete parcel: %w", err)
+		return fmt.Errorf("failed to delete parcel by number: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get affected rows: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("parcel with number %d and status %s not found", number, ParcelStatusRegistered)
 	}
 
 	return nil
-}
-
-func (s ParcelStore) StatusByNumber(number int) (string, error) {
-	var status string
-	err := s.db.QueryRow("SELECT status FROM parcel WHERE number = $1", number).Scan(&status)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return "", fmt.Errorf("parcel with number %d not found", number)
-		}
-		return "", fmt.Errorf("failed to query parcel status: %w", err)
-	}
-
-	return status, nil
 }
